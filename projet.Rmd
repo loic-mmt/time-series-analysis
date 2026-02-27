@@ -1,0 +1,155 @@
+---
+title: "Analyse de la moyenne de température française (1950-2025)"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width = 10, fig.height = 5, message = FALSE, warning = FALSE)
+```
+
+# Objectif
+
+Étude de la série temporelle mensuelle des températures en France, avec une décomposition additive :
+
+- composante observée \(Y_t\)
+- tendance \(T_t\)
+- saisonnalité \(S_t\)
+- résidu \(R_t\)
+
+<mark>But du document :</mark> obtenir un rendu knit clair (titres, formules, mise en évidence) et cohérent.
+
+## Chargement des données
+
+```{r data}
+library(ggplot2)
+library(forecast)
+
+data <- read.csv("data/data.csv")
+data <- data[, 2]
+data <- ts(data, start = c(1950, 1), end = c(2025, 1), frequency = 12)
+head(data)
+```
+
+Les données sont mensuelles, de janvier 1950 à janvier 2025.
+
+## Visualisation initiale
+
+```{r plot-full-series}
+plot.ts(
+  data,
+  main = "Température mensuelle en France (1950-2025)",
+  ylab = "Température",
+  xlab = "Date (mensuel)"
+)
+```
+
+**Observation :** la série présente une saisonnalité visible et une tendance globale légèrement croissante.
+
+```{r plot-zoom}
+short_data <- window(data, start = c(2000, 1))
+plot.ts(
+  short_data,
+  main = "Température mensuelle en France (2000-2025)",
+  ylab = "Température",
+  xlab = "Date (mensuel)"
+)
+
+s_data <- window(data, start = c(2024, 1))
+plot.ts(
+  s_data,
+  main = "Température mensuelle en France (2024-2025)",
+  ylab = "Température",
+  xlab = "Date (mensuel)"
+)
+```
+
+**Remarque :** les températures montent en général entre avril et août.
+
+## Décomposition additive et formules
+
+Pour estimer la tendance, on utilise une moyenne mobile.
+
+### Moyenne mobile
+
+\[
+\mathrm{MM}_t^{(m)} = \frac{1}{m}\sum_{j=-(m-1)/2}^{(m-1)/2} X_{t+j}
+\]
+
+Pour \(m = 12\) (ordre pair), la moyenne mobile centrée s'écrit :
+
+\[
+\mathrm{MM}_{t,\text{centrée}}^{(12)}
+= \frac{1}{24}X_{t-6}
++ \frac{1}{12}\sum_{j=-5}^{5}X_{t+j}
++ \frac{1}{24}X_{t+6}
+\]
+
+```{r moving-average}
+ma12 <- ma(short_data, 12)
+ecart <- short_data - ma12
+mois <- factor(cycle(short_data), levels = 1:12, labels = month.abb)
+```
+
+### Modèle additif
+
+\[
+Y_t = T_t + S_t + R_t
+\]
+
+```{r seasonal-coefs}
+lm_temp <- lm(ecart ~ mois - 1, na.action = na.exclude)
+coef_saison <- coef(lm_temp)
+```
+
+Pour imposer une somme saisonnière nulle :
+
+\[
+\widetilde{S}_m = \widehat{S}_m - \frac{1}{12}\sum_{k=1}^{12}\widehat{S}_k
+\]
+
+```{r center-seasonality}
+coef_saison <- coef_saison - mean(coef_saison, na.rm = TRUE)
+
+saison_est <- ts(
+  rep(coef_saison, length.out = length(short_data)),
+  start = start(short_data),
+  frequency = frequency(short_data)
+)
+```
+
+Le résidu additif est calculé par :
+
+\[
+R_t = Y_t - (T_t + S_t)
+\]
+
+```{r residuals}
+residus <- short_data - (ma12 + saison_est)
+```
+
+## Visualisation des composantes
+
+```{r decomposition-plots}
+old_par <- par(no.readonly = TRUE)
+par(mfrow = c(4, 1), mar = c(2.5, 4, 1.2, 1))
+
+plot(short_data, main = "Série observée", ylab = "Température")
+plot(ma12, main = "Tendance-cycle (MM12)", ylab = "MM12")
+plot(saison_est, main = "Composante saisonnière estimée", ylab = "S_t")
+abline(h = 0, col = "grey60", lty = 2)
+plot(residus, main = "Résidus additifs", ylab = "R_t")
+abline(h = 0, col = "grey60", lty = 2)
+
+par(old_par)
+```
+
+Nous pouvons avoir le même résultat avec `décompose`:
+
+```{r}
+m <- decompose(short_data, type = "additive")
+plot(m)
+```
