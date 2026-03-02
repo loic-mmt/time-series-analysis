@@ -170,3 +170,78 @@ Nous pouvons avoir le même résultat avec `décompose`:
 m <- decompose(short_data, type = "additive")
 plot(m)
 ```
+
+## Prévision hors échantillon (train -> test)
+
+Dans cette partie, on suit cette démarche :
+
+1. entraînement du modèle sur **train** uniquement ;
+2. prévision sur un horizon égal à la longueur de **test** ;
+3. comparaison des prévisions aux valeurs observées de test.
+
+Ici, on choisit un modèle **SARIMA automatique** (`auto.arima`) car il capte à la fois
+la dépendance temporelle et la saisonnalité mensuelle.
+
+```{r fit-forecast}
+# Horizon de prévision = taille du jeu de test
+h <- length(test_data)
+
+# Entraînement uniquement sur le train
+fit_arima <- auto.arima(train_data, seasonal = TRUE)
+fit_arima
+
+# Prévision sur l'horizon test
+fc_arima <- forecast(fit_arima, h = h)
+```
+
+### Visualisation prévisions vs test
+
+```{r plot-forecast-vs-test}
+plot(
+  fc_arima,
+  main = "Prévisions SARIMA sur l'horizon test",
+  ylab = "Température",
+  xlab = "Date"
+)
+lines(test_data, col = "firebrick", lwd = 2)
+legend(
+  "topleft",
+  legend = c("Prévision (moyenne)", "Observé test"),
+  col = c("blue", "firebrick"),
+  lty = 1,
+  lwd = 2,
+  bty = "n"
+)
+```
+
+### Évaluation sur le jeu de test
+
+On calcule les métriques :
+
+- \(\text{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}(y_t-\hat y_t)^2}\)
+- \(\text{MAE} = \frac{1}{n}\sum_{t=1}^{n}|y_t-\hat y_t|\)
+- \(\text{MAPE} = \frac{100}{n}\sum_{t=1}^{n}\left|\frac{y_t-\hat y_t}{y_t}\right|\)
+
+```{r metrics-test}
+y_true <- as.numeric(test_data)
+y_pred <- as.numeric(fc_arima$mean)
+
+rmse <- sqrt(mean((y_true - y_pred)^2))
+mae <- mean(abs(y_true - y_pred))
+
+# Protection contre une éventuelle division par zéro pour la MAPE
+idx_nz <- y_true != 0
+mape <- mean(abs((y_true[idx_nz] - y_pred[idx_nz]) / y_true[idx_nz])) * 100
+
+metrics <- data.frame(
+  Metrique = c("RMSE", "MAE", "MAPE (%)"),
+  Valeur = c(rmse, mae, mape)
+)
+knitr::kable(metrics, digits = 3, caption = "Performance de prévision sur le jeu de test")
+```
+
+### Interprétation
+
+- Une valeur faible de **RMSE** indique que les grosses erreurs sont limitées.
+- La **MAE** donne une erreur moyenne facile à interpréter (en degrés).
+- La **MAPE** exprime l'erreur en pourcentage, utile pour comparer des contextes différents.
