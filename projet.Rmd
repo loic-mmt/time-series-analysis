@@ -74,10 +74,10 @@ plot.ts(
   xlab = "Date (mensuel)"
 )
 
-s_data <- test_data
+s_data <- window(train_data, start = c(2023, 1))
 plot.ts(
   s_data,
-  main = "Test - Température mensuelle en France (2024-2025)",
+  main = "Train - Température mensuelle en France (2024-2025)",
   ylab = "Température",
   xlab = "Date (mensuel)"
 )
@@ -185,6 +185,7 @@ la dépendance temporelle et la saisonnalité mensuelle.
 ```{r fit-forecast}
 # Horizon de prévision = taille du jeu de test
 h <- length(test_data)
+n_train_window <- min(length(train_data), 3 * h) # 75% train / 25% test dans la fenêtre affichée
 
 # Entraînement uniquement sur le train
 fit_arima <- auto.arima(train_data, seasonal = TRUE)
@@ -196,19 +197,24 @@ fc_arima <- forecast(fit_arima, h = h)
 
 ### Visualisation prévisions vs test
 
+Pour améliorer la lisibilité, on affiche uniquement une fenêtre récente avec
+une proportion de **75% de points train** et **25% de points test**.
+
 ```{r plot-forecast-vs-test}
 plot(
   fc_arima,
+  include = n_train_window,
   main = "Prévisions SARIMA sur l'horizon test",
   ylab = "Température",
   xlab = "Date"
 )
 lines(test_data, col = "firebrick", lwd = 2)
+abline(v = time(test_data)[1], col = "darkgreen", lty = 2, lwd = 2)
 legend(
   "topleft",
-  legend = c("Prévision (moyenne)", "Observé test"),
-  col = c("blue", "firebrick"),
-  lty = 1,
+  legend = c("Prévision (moyenne)", "Observé test", "Début test"),
+  col = c("blue", "firebrick", "darkgreen"),
+  lty = c(1, 1, 2),
   lwd = 2,
   bty = "n"
 )
