@@ -20,8 +20,6 @@ knitr::opts_chunk$set(fig.width = 10, fig.height = 5, message = FALSE, warning =
 - saisonnalité \(S_t\)
 - résidu \(R_t\)
 
-<mark>But du document :</mark> obtenir un rendu knit clair (titres, formules, mise en évidence) et cohérent.
-
 ## Chargement des données
 
 ```{r data}
@@ -31,10 +29,19 @@ library(forecast)
 data <- read.csv("data/data.csv")
 data <- data[, 2]
 data <- ts(data, start = c(1950, 1), end = c(2025, 1), frequency = 12)
-head(data)
+
+# Séparation temporelle train/test
+train_data <- window(data, end = c(2023, 12))
+test_data <- window(data, start = c(2024, 1))
+
+head(train_data)
 ```
 
 Les données sont mensuelles, de janvier 1950 à janvier 2025.
+La séparation est faite ainsi :
+
+- **Train** : janvier 1950 à décembre 2023
+- **Test** : janvier 2024 à janvier 2025
 
 ## Visualisation initiale
 
@@ -45,29 +52,39 @@ plot.ts(
   ylab = "Température",
   xlab = "Date (mensuel)"
 )
+abline(v = 2024, col = "firebrick", lty = 2, lwd = 2)
+legend(
+  "topleft",
+  legend = c("Séparation train/test (2024-01)"),
+  col = c("firebrick"),
+  lty = 2,
+  lwd = 2,
+  bty = "n"
+)
 ```
 
 **Observation :** la série présente une saisonnalité visible et une tendance globale légèrement croissante.
 
 ```{r plot-zoom}
-short_data <- window(data, start = c(2000, 1))
+short_data <- window(train_data, start = c(2000, 1))
 plot.ts(
   short_data,
-  main = "Température mensuelle en France (2000-2025)",
+  main = "Train - Température mensuelle en France (2000-2023)",
   ylab = "Température",
   xlab = "Date (mensuel)"
 )
 
-s_data <- window(data, start = c(2024, 1))
+s_data <- test_data
 plot.ts(
   s_data,
-  main = "Température mensuelle en France (2024-2025)",
+  main = "Test - Température mensuelle en France (2024-2025)",
   ylab = "Température",
   xlab = "Date (mensuel)"
 )
 ```
 
 **Remarque :** les températures montent en général entre avril et août.
+Toute la décomposition ci-dessous est effectuée uniquement sur le **train**.
 
 ## Décomposition additive et formules
 
