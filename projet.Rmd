@@ -84,6 +84,68 @@ plot.ts(
 ```
 
 **Remarque :** les températures montent en général entre avril et août.
+
+## Analyse de stationnarité et dépendance temporelle
+
+Hypothèses du test de stationnarité :
+
+H0 : la série a une racine unitaire (non stationnaire)
+H1 : la série est stationnaire
+
+```{r}
+par(mfrow = c(2, 1), mar = c(2.5, 4, 1.2, 1))
+acf(short_data, main = "ACF")
+pacf(short_data, main = "PACF")
+
+#Test de stationnarité
+library(tseries)
+adf.test(short_data)
+```
+*Interpretation* :
+Conclusion de l'ACF : La série n’est pas stationnaire car on a une décroissance lente et sinusoïdale. Il y a une saisonnalité claire de période 12.
+
+Conclusion PACF : La PACF montre un pic significatif au lag 1, ce qui suggère une composante autorégressive d’ordre 1 (AR(1)).
+
+Le test ADF appliqué à la période 2000–2025 rejette l’hypothèse de racine unitaire la p-value = 0.01<0.05.
+La série est donc stationnaire en moyenne sur cette période.
+En revanche, l’ACF met en évidence une forte saisonnalité annuelle (pics aux multiples de 12).
+Ainsi, une différenciation saisonnière (D = 1) est retenue, tandis qu’une différenciation ordinaire (d = 0) semble suffisante.
+
+## Différenciation de la série
+
+### Différenciation simple
+
+```{r}
+diff1 <- diff(short_data, differences = 1)
+plot(diff1, main = "Différenciation d'ordre 1")
+acf(diff1)
+```
+*Interpretation* : Après différenciation d’ordre 1, la série est centrée autour de zéro et la tendance disparaît.
+néanmoins, l’ACF met encore en évidence des pics aux lags qui sont multiples de 12, ce qui montre que la saisonnalité annuelle persiste.
+Ainsi, faire une différenciation saisonnière apparaît nécessaire.
+
+### Différenciation saisonnière
+
+La différenciation saisonnière consiste à soustraire à chaque observation la valeur observée une période saisonnière auparavant, ici 12 mois. Pour une série mensuelle, la période saisonnière est de s=12.
+La transformation appliquée s’écrit donc :
+
+\nabla_{12} Y_t = Y_t - Y_{t-12} où Y_t représente la valeur de la série au temps
+
+Cette transformation permet de supprimer la composante saisonnière présente dans la série initiale.
+
+```{r}
+diff_season <- diff(short_data, lag = 12)
+plot(diff_season, main = "Différenciation saisonnière")
+acf(diff_season)
+```
+*Interpretation* : La série obtenue oscille autour de zéro et ne présente plus de structure saisonnière apparente. La variance semble également relativement stable dans le temps, ce qui constitue un indice de stationnarité.
+L'analyse de l'ACF après différenciation montre que la plupart des autocorrélations sont dans les bandes de confiance, avec un pic significatif au lag 1 indiquant une dépendance de court terme. Les pics saisonniers aux multiples de 12,
+présents initialement, ont quasiment disparu.
+La différenciation saisonnière a donc efficacement éliminé la structure annuelle,
+rendant la série quasi-stationnaire, condition nécessaire pour l'estimation de modèles ARIMA/SARIMA.
+
+
+
 Toute la décomposition ci-dessous est effectuée uniquement sur le **train**.
 
 ## Décomposition additive et formules
