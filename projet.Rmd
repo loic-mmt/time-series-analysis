@@ -103,7 +103,6 @@ adf.test(short_data)
 ```
 *Interpretation* :
 Conclusion de l'ACF : La série n’est pas stationnaire car on a une décroissance lente et sinusoïdale. Il y a une saisonnalité claire de période 12.
-
 Conclusion PACF : La PACF montre un pic significatif au lag 1, ce qui suggère une composante autorégressive d’ordre 1 (AR(1)).
 
 Le test ADF appliqué à la période 2000–2025 rejette l’hypothèse de racine unitaire la p-value = 0.01<0.05.
@@ -126,7 +125,8 @@ Ainsi, faire une différenciation saisonnière apparaît nécessaire.
 
 ### Différenciation saisonnière
 
-La différenciation saisonnière consiste à soustraire à chaque observation la valeur observée une période saisonnière auparavant, ici 12 mois. Pour une série mensuelle, la période saisonnière est de s=12.
+La différenciation saisonnière consiste à soustraire à chaque observation la valeur observée une période saisonnière auparavant, ici 12 mois.
+Pour une série mensuelle, la période saisonnière est de s=12.
 La transformation appliquée s’écrit donc :
 
 \nabla_{12} Y_t = Y_t - Y_{t-12} où Y_t représente la valeur de la série au temps
@@ -138,8 +138,10 @@ diff_season <- diff(short_data, lag = 12)
 plot(diff_season, main = "Différenciation saisonnière")
 acf(diff_season)
 ```
-*Interpretation* : La série obtenue oscille autour de zéro et ne présente plus de structure saisonnière apparente. La variance semble également relativement stable dans le temps, ce qui constitue un indice de stationnarité.
-L'analyse de l'ACF après différenciation montre que la plupart des autocorrélations sont dans les bandes de confiance, avec un pic significatif au lag 1 indiquant une dépendance de court terme. Les pics saisonniers aux multiples de 12,
+*Interpretation* : La série obtenue oscille autour de zéro et ne présente plus de structure saisonnière apparente.
+La variance semble également relativement stable dans le temps, ce qui constitue un indice de stationnarité.
+L'analyse de l'ACF après différenciation montre que la plupart des autocorrélations sont dans les bandes de confiance,
+avec un pic significatif au lag 1 indiquant une dépendance de court terme. Les pics saisonniers aux multiples de 12,
 présents initialement, ont quasiment disparu.
 La différenciation saisonnière a donc efficacement éliminé la structure annuelle,
 rendant la série quasi-stationnaire, condition nécessaire pour l'estimation de modèles ARIMA/SARIMA.
