@@ -171,50 +171,190 @@ m <- decompose(short_data, type = "additive")
 plot(m)
 ```
 
+## Identification Box-Jenkins (train)
+
+### Série en niveau : ACF/PACF
+
+```{r acf-pacf-level}
+par(mfrow = c(3, 1), mar = c(2.8, 4, 1.5, 1))
+plot(train_data, type = "l", main = "Train en niveau", ylab = "Température", xlab = "")
+acf(train_data, lag.max = 60, main = "ACF(train)")
+pacf(train_data, lag.max = 60, main = "PACF(train)")
+par(mfrow = c(1, 1))
+```
+
+La série en niveau présente une forte structure de dépendance et une saisonnalité marquée.
+On applique donc des différenciations avant d'ajuster des modèles ARMA/SARIMA.
+
+### Différenciations et stationnarisation
+
+```{r differencing}
+d1 <- diff(train_data, differences = 1)                 # tendance
+d12 <- diff(train_data, lag = 12, differences = 1)      # saisonnalité
+z <- diff(d12, differences = 1)                         # combinaison d=1 et D=1
+
+par(mfrow = c(3, 3), mar = c(2.5, 3.5, 1.6, 1))
+plot(train_data, type = "l", main = "Niveau", ylab = "")
+acf(train_data, lag.max = 48, main = "ACF niveau")
+pacf(train_data, lag.max = 48, main = "PACF niveau")
+
+plot(d1, type = "l", main = "diff(1)", ylab = "")
+acf(d1, lag.max = 48, main = "ACF diff(1)")
+pacf(d1, lag.max = 48, main = "PACF diff(1)")
+
+plot(z, type = "l", main = "diff(1) + diff saisonnière(12)", ylab = "")
+acf(z, lag.max = 48, main = "ACF z")
+pacf(z, lag.max = 48, main = "PACF z")
+par(mfrow = c(1, 1))
+```
+
+### Tests de blancheur sur les séries transformées
+
+```{r whiteness-tests}
+lb_table <- data.frame(
+  Serie = c("Niveau", "diff(1)", "diff(12)", "diff(1) + diff(12)"),
+  p_value_LB_24 = c(
+    Box.test(train_data, lag = 24, type = "Ljung-Box")$p.value,
+    Box.test(d1, lag = 24, type = "Ljung-Box")$p.value,
+    Box.test(d12, lag = 24, type = "Ljung-Box")$p.value,
+    Box.test(z, lag = 24, type = "Ljung-Box")$p.value
+  )
+)
+knitr::kable(lb_table, digits = 4, caption = "Tests de blancheur (Ljung-Box, lag 24)")
+```
+
+Même après stationnarisation, la série `z` n'est pas un bruit blanc : il reste une structure à modéliser.
+
+## Modèles candidats manuels (sur train)
+
+```{r manual-models}
+score_fit <- function(fit, name, lag_lb = 24) {
+  data.frame(
+    Modele = name,
+    AIC = AIC(fit),
+    BIC = BIC(fit),
+    LB_pvalue = Box.test(
+      residuals(fit),
+      lag = lag_lb,
+      type = "Ljung-Box",
+      fitdf = length(coef(fit))
+    )$p.value
+  )
+}
+
+manual_fits <- list(
+  "SARIMA(0,1,1)(0,1,1)[12]" = Arima(
+    train_data, order = c(0, 1, 1),
+    seasonal = list(order = c(0, 1, 1), period = 12),
+    include.drift = FALSE, method = "ML"
+  ),
+  "SARIMA(1,1,1)(0,1,1)[12]" = Arima(
+    train_data, order = c(1, 1, 1),
+    seasonal = list(order = c(0, 1, 1), period = 12),
+    include.drift = FALSE, method = "ML"
+  ),
+  "SARIMA(0,1,1)(1,1,1)[12]" = Arima(
+    train_data, order = c(0, 1, 1),
+    seasonal = list(order = c(1, 1, 1), period = 12),
+    include.drift = FALSE, method = "ML"
+  ),
+  "SARIMA(2,1,0)(0,1,1)[12]" = Arima(
+    train_data, order = c(2, 1, 0),
+    seasonal = list(order = c(0, 1, 1), period = 12),
+    include.drift = FALSE, method = "ML"
+  ),
+  "SARIMA(1,1,0)(0,1,1)[12]" = Arima(
+    train_data, order = c(1, 1, 0),
+    seasonal = list(order = c(0, 1, 1), period = 12),
+    include.drift = FALSE, method = "ML"
+  )
+)
+
+cmp_manual <- do.call(
+  rbind,
+  lapply(names(manual_fits), function(nm) score_fit(manual_fits[[nm]], nm))
+)
+cmp_manual <- cmp_manual[order(cmp_manual$AIC), ]
+knitr::kable(cmp_manual, digits = 4, caption = "Comparaison des modèles manuels (train)")
+
+best_manual_name <- as.character(cmp_manual$Modele[1])
+best_manual_fit <- manual_fits[[best_manual_name]]
+best_manual_name
+best_manual_fit
+```
+
+## Modèle automatique
+
+```{r auto-model}
+fit_auto <- auto.arima(
+  train_data,
+  seasonal = TRUE,
+  stepwise = FALSE,
+  approximation = FALSE
+)
+fit_auto
+
+cmp_auto <- rbind(
+  score_fit(best_manual_fit, best_manual_name),
+  score_fit(fit_auto, "auto.arima")
+)
+knitr::kable(cmp_auto, digits = 4, caption = "Meilleur modèle manuel vs auto.arima (train)")
+```
+
+## Diagnostic des résidus (meilleur manuel vs auto)
+
+```{r residual-diagnostics}
+par(mfrow = c(2, 2), mar = c(2.8, 3.8, 1.6, 1))
+plot(residuals(best_manual_fit), type = "l", main = paste("Résidus", best_manual_name), ylab = "")
+acf(residuals(best_manual_fit), lag.max = 48, main = "ACF résidus manuel")
+plot(residuals(fit_auto), type = "l", main = "Résidus auto.arima", ylab = "")
+acf(residuals(fit_auto), lag.max = 48, main = "ACF résidus auto")
+par(mfrow = c(1, 1))
+
+diag_res <- data.frame(
+  Modele = c(best_manual_name, "auto.arima"),
+  LB_pvalue_12 = c(
+    Box.test(residuals(best_manual_fit), lag = 12, type = "Ljung-Box", fitdf = length(coef(best_manual_fit)))$p.value,
+    Box.test(residuals(fit_auto), lag = 12, type = "Ljung-Box", fitdf = length(coef(fit_auto)))$p.value
+  ),
+  LB_pvalue_24 = c(
+    Box.test(residuals(best_manual_fit), lag = 24, type = "Ljung-Box", fitdf = length(coef(best_manual_fit)))$p.value,
+    Box.test(residuals(fit_auto), lag = 24, type = "Ljung-Box", fitdf = length(coef(fit_auto)))$p.value
+  )
+)
+knitr::kable(diag_res, digits = 4, caption = "Blancheur des résidus des modèles retenus")
+```
+
 ## Prévision hors échantillon (train -> test)
 
-Dans cette partie, on suit cette démarche :
-
-1. entraînement du modèle sur **train** uniquement ;
-2. prévision sur un horizon égal à la longueur de **test** ;
-3. comparaison des prévisions aux valeurs observées de test.
-
-Ici, on choisit un modèle **SARIMA automatique** (`auto.arima`) car il capte à la fois
-la dépendance temporelle et la saisonnalité mensuelle.
+Dans cette partie, on compare les prévisions du meilleur modèle manuel et du modèle automatique.
 
 ```{r fit-forecast}
-# Horizon de prévision = taille du jeu de test
 h <- length(test_data)
-n_train_window <- min(length(train_data), 3 * h) # 75% train / 25% test dans la fenêtre affichée
+n_train_window <- min(length(train_data), 3 * h)
 
-# Entraînement uniquement sur le train
-fit_arima <- auto.arima(train_data, seasonal = TRUE)
-fit_arima
-
-# Prévision sur l'horizon test
-fc_arima <- forecast(fit_arima, h = h)
+fc_manual <- forecast(best_manual_fit, h = h)
+fc_auto <- forecast(fit_auto, h = h)
 ```
 
 ### Visualisation prévisions vs test
 
-Pour améliorer la lisibilité, on affiche uniquement une fenêtre récente avec
-une proportion de **75% de points train** et **25% de points test**.
-
 ```{r plot-forecast-vs-test}
 plot(
-  fc_arima,
+  fc_auto,
   include = n_train_window,
-  main = "Prévisions SARIMA sur l'horizon test",
+  main = "Prévisions sur l'horizon test : manuel vs auto",
   ylab = "Température",
   xlab = "Date"
 )
+lines(fc_manual$mean, col = "darkorange", lwd = 2)
 lines(test_data, col = "firebrick", lwd = 2)
 abline(v = time(test_data)[1], col = "darkgreen", lty = 2, lwd = 2)
 legend(
   "topleft",
-  legend = c("Prévision (moyenne)", "Observé test", "Début test"),
-  col = c("blue", "firebrick", "darkgreen"),
-  lty = c(1, 1, 2),
+  legend = c("Prévision auto (moyenne)", "Prévision meilleur manuel", "Observé test", "Début test"),
+  col = c("blue", "darkorange", "firebrick", "darkgreen"),
+  lty = c(1, 1, 1, 2),
   lwd = 2,
   bty = "n"
 )
@@ -224,30 +364,42 @@ legend(
 
 On calcule les métriques :
 
-- \(\text{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}(y_t-\hat y_t)^2}\)
-- \(\text{MAE} = \frac{1}{n}\sum_{t=1}^{n}|y_t-\hat y_t|\)
-- \(\text{MAPE} = \frac{100}{n}\sum_{t=1}^{n}\left|\frac{y_t-\hat y_t}{y_t}\right|\)
+- \(\text{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}(y_t-\hat y_t)^2}\)  
+  Pénalise davantage les grosses erreurs que le MAE.
+
+- \(\text{MAE} = \frac{1}{n}\sum_{t=1}^{n}|y_t-\hat y_t|\)  
+  Interprétation directe en unité de la variable (ici, °C).
+
+- \(\text{MAPE} = \frac{100}{n}\sum_{t=1}^{n}\left|\frac{y_t-\hat y_t}{y_t}\right|\)  
+  Donne une erreur relative, plus facile à comparer entre séries/échelles.
+
 
 ```{r metrics-test}
+metric_fun <- function(y_true, y_pred) {
+  rmse <- sqrt(mean((y_true - y_pred)^2))
+  mae <- mean(abs(y_true - y_pred))
+  idx_nz <- y_true != 0
+  mape <- mean(abs((y_true[idx_nz] - y_pred[idx_nz]) / y_true[idx_nz])) * 100
+  c(RMSE = rmse, MAE = mae, MAPE = mape)
+}
+
 y_true <- as.numeric(test_data)
-y_pred <- as.numeric(fc_arima$mean)
+y_pred_manual <- as.numeric(fc_manual$mean)
+y_pred_auto <- as.numeric(fc_auto$mean)
 
-rmse <- sqrt(mean((y_true - y_pred)^2))
-mae <- mean(abs(y_true - y_pred))
-
-# Protection contre une éventuelle division par zéro pour la MAPE
-idx_nz <- y_true != 0
-mape <- mean(abs((y_true[idx_nz] - y_pred[idx_nz]) / y_true[idx_nz])) * 100
+met_manual <- metric_fun(y_true, y_pred_manual)
+met_auto <- metric_fun(y_true, y_pred_auto)
 
 metrics <- data.frame(
-  Metrique = c("RMSE", "MAE", "MAPE (%)"),
-  Valeur = c(rmse, mae, mape)
+  Modele = c(best_manual_name, "auto.arima"),
+  RMSE = c(met_manual["RMSE"], met_auto["RMSE"]),
+  MAE = c(met_manual["MAE"], met_auto["MAE"]),
+  MAPE_pct = c(met_manual["MAPE"], met_auto["MAPE"])
 )
 knitr::kable(metrics, digits = 3, caption = "Performance de prévision sur le jeu de test")
 ```
 
 ### Interprétation
 
-- Une valeur faible de **RMSE** indique que les grosses erreurs sont limitées.
-- La **MAE** donne une erreur moyenne facile à interpréter (en degrés).
-- La **MAPE** exprime l'erreur en pourcentage, utile pour comparer des contextes différents.
+- Les sections ci-dessus reprennent le pipeline vu en TP : identification, stationnarisation, choix de modèles, diagnostics résiduels et évaluation hors échantillon.
+- Le modèle retenu pour la prévision est celui qui combine résidus les plus proches d'un bruit blanc et meilleures performances test.
