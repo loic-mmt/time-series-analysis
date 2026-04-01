@@ -1,5 +1,9 @@
 ---
 title: "Analyse de la moyenne de température française (1950-2025)"
+author:
+  - "Loïc Mémeteau"
+  - "Arthur Hauguel"
+  - "Margot Laignel"
 output:
   html_document:
     toc: true
@@ -170,6 +174,95 @@ Nous pouvons avoir le même résultat avec `décompose`:
 m <- decompose(short_data, type = "additive")
 plot(m)
 ```
+
+## Benchmark de la tendance polynomiale (série désaisonnalisée)
+
+On définit :
+
+\[
+y_t^{\text{cvs}} = y_t - \widehat{S}_t
+\]
+
+puis on ajuste :
+
+\[
+f_k(t) = \beta_0 + \beta_1 t + \cdots + \beta_k t^k,\quad k \in \{1,2,3\}
+\]
+
+```{r poly-trend-benchmark}
+decomp_train <- decompose(train_data, type = "additive")
+y_cvs <- train_data - decomp_train$seasonal
+
+df_poly <- na.omit(data.frame(
+  t = seq_along(y_cvs),
+  y = as.numeric(y_cvs)
+))
+
+poly_fits <- list(
+  "Polynôme degré 1" = lm(y ~ t, data = df_poly),
+  "Polynôme degré 2" = lm(y ~ t + I(t^2), data = df_poly),
+  "Polynôme degré 3" = lm(y ~ t + I(t^2) + I(t^3), data = df_poly)
+)
+
+poly_cmp <- data.frame(
+  Modele = names(poly_fits),
+  R2_adj = sapply(poly_fits, function(mod) summary(mod)$adj.r.squared),
+  AIC = sapply(poly_fits, AIC),
+  BIC = sapply(poly_fits, BIC)
+)
+poly_cmp <- poly_cmp[order(poly_cmp$BIC), ]
+knitr::kable(poly_cmp, digits = 4, caption = "Comparaison des tendances polynomiales")
+
+best_poly_name <- as.character(poly_cmp$Modele[1])
+best_poly_fit <- poly_fits[[best_poly_name]]
+best_poly_name
+```
+
+```{r poly-trend-plot}
+trend_poly <- ts(
+  fitted(best_poly_fit),
+  start = start(train_data),
+  frequency = frequency(train_data)
+)
+
+plot(
+  y_cvs,
+  type = "l",
+  main = "Série désaisonnalisée et tendance polynomiale retenue",
+  ylab = "Température désaisonnalisée",
+  xlab = "Date"
+)
+lines(trend_poly, col = "darkorange", lwd = 2)
+legend(
+  "topleft",
+  legend = c("Série désaisonnalisée", "Tendance polynomiale retenue"),
+  col = c("black", "darkorange"),
+  lty = 1,
+  lwd = 2,
+  bty = "n"
+)
+```
+
+```{r poly-trend-residuals}
+res_poly <- residuals(best_poly_fit)
+
+poly_diag <- data.frame(
+  Modele = best_poly_name,
+  LB_pvalue_24 = Box.test(
+    res_poly,
+    lag = 24,
+    type = "Ljung-Box",
+    fitdf = length(coef(best_poly_fit))
+  )$p.value
+)
+knitr::kable(poly_diag, digits = 4, caption = "Blancheur des résidus de la tendance polynomiale retenue")
+```
+
+Cette comparaison sert de **baseline de tendance** :
+`r best_poly_name` est le meilleur parmi les polynômes testés.
+Mais ce n'est pas un modèle final de prévision : la p-value Ljung-Box vaut
+`r round(poly_diag$LB_pvalue_24[1], 4)`, donc (< 0.05) les résidus ne sont pas blancs.
+Il reste une dépendance temporelle à modéliser, d'où l'étape SARIMA ensuite.
 
 ## Identification Box-Jenkins (train)
 
@@ -402,4 +495,8 @@ knitr::kable(metrics, digits = 3, caption = "Performance de prévision sur le je
 ### Interprétation
 
 - Les sections ci-dessus reprennent le pipeline vu en TP : identification, stationnarisation, choix de modèles, diagnostics résiduels et évaluation hors échantillon.
-- Le modèle retenu pour la prévision est celui qui combine résidus les plus proches d'un bruit blanc et meilleures performances test.
+- Sur le jeu de test, `r best_manual_name` est plus précis que `auto.arima` :
+  RMSE `r round(met_manual["RMSE"], 3)` vs `r round(met_auto["RMSE"], 3)`,
+  MAE `r round(met_manual["MAE"], 3)` vs `r round(met_auto["MAE"], 3)`,
+  MAPE `r round(met_manual["MAPE"], 3)`% vs `r round(met_auto["MAPE"], 3)`%.
+- Le modèle retenu pour la prévision finale est donc `r best_manual_name`.
